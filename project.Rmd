@@ -1,0 +1,188 @@
+---
+title: "Johns Hopkins - Practical Machine Learning Course Project"
+author: "Benjamin Berhault"
+date: '`r format(Sys.time(), "%B %d, %Y")`'
+output: html_document
+---
+  
+```{r global_options, include=FALSE}
+library(knitr)
+
+opts_chunk$set(fig.width=7, fig.height=4, warning=FALSE, message=FALSE)
+# to not scientific notation
+options(scipen=999)
+
+```
+#### Mission
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+#### URL
+* [Coursera - Johns Hopkins : Practical Machine Learning](https://www.coursera.org/course/predmachlearn)
+* Code source can be found here : [github.com/benjamin-berhault/practical-machine_learning](https://github.com/benjamin-berhault/practical-machine_learning)
+
+#### Data :
+* [Training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+* [Test data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+```{r include=FALSE}
+library(caret)
+library(rattle)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(randomForest)
+library(gbm)
+```
+
+## Data loading
+```{r echo=FALSE}
+set.seed(1982)
+
+# training set
+training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+# testing set
+testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+## Cleaning the data
+
+We begin by removing Near Zero Variance variables
+
+<b>nearZeroVar()</b> : By default, a predictor is classified as near-zero variance if the percentage of unique values in the samples is less than 10% and when the frequency ratio mentioned above is greater than 19 95/5.
+
+```{r echo=FALSE}
+# nzv : collect column near zero variance info
+nzv <- nearZeroVar(training, saveMetrics=TRUE)
+# save those column names
+non_relevant_columns <- c(names(training[,nzv$nzv==TRUE]))
+# delete those columns
+training <- training[,nzv$nzv==FALSE]
+
+```
+
+We remove the ID column (non relevant)
+```{r}
+non_relevant_columns <- c(non_relevant_columns,names(training[1]))
+training <- training[c(-1)]
+```
+Investigation of missing values
+```{r}
+# Quantity of NAs by column
+training_nb_of_NAs <- apply(training, 2, function(x) sum(is.na(x)))
+
+# We check the different amount of missing observations
+training_dif_amount_of_NAs <- unique(training_nb_of_NAs)
+
+# Smallest amount of missing observations 
+smallest_missing <- min(training_dif_amount_of_NAs)
+
+# Pourcentage of missing observations for that column 
+round(smallest_missing/nrow(training)*100,2)
+```
+The pourcentage is so important that we remove each column with missing values.
+```{r}
+columns_2_ignore <- c()
+# columns to ignore
+column_with_NA <- (training_nb_of_NAs != 0)
+for (i in 1:length(column_with_NA)) {
+  if (column_with_NA[i] == TRUE){
+    # store the name of column to remove
+    columns_2_ignore <- c(columns_2_ignore, names(column_with_NA[i]))
+  }
+}
+
+# store the name of irrelevant columns
+non_relevant_columns <- c(non_relevant_columns,columns_2_ignore)
+
+# remove irrelevant columns from the training dataset
+training <- training[, !(colnames(training) %in% columns_2_ignore), drop=FALSE]
+```
+
+Partioning the training set in one pre-training set and one validation set
+```{r}
+set.seed(1982)
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+pre_training <- training[inTrain, ]
+validation_set <- training[-inTrain, ]
+dim(pre_training)
+dim(validation_set)
+```
+
+Reduce the testing dataset to relevant columns
+```{r}
+clean2 <- colnames(pre_training[, -58])  # remove the classe column
+testing <- testing[clean2]
+dim(testing)
+```
+
+# Investigation on machine learning algorithms 
+### Decision Tree
+```{r}
+mod_decisionTree <- rpart(classe ~ ., data=pre_training, method="class")
+fancyRpartPlot(mod_decisionTree)
+
+prediction_DT <- predict(mod_decisionTree, validation_set, type = "class")
+cmtree <- confusionMatrix(prediction_DT, validation_set$classe)
+cmtree
+par(mfrow=c(1,1))
+plot(cmtree$table, col = cmtree$byClass, main = paste("Decision Tree Confusion Matrix"))
+```
+
+### Random Forests
+```{r}
+set.seed(1982)
+mod_randomForest <- randomForest(classe ~ ., data=pre_training)
+prediction_RF <- predict(mod_randomForest, validation_set, type = "class")
+cmrf <- confusionMatrix(prediction_RF, validation_set$classe)
+cmrf
+
+par(mfrow=c(1,1))
+plot(mod_randomForest)
+plot(cmrf$table, col = cmtree$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cmrf$overall['Accuracy'], 4)))
+```
+### Generalized Boosted Regression
+```{r}
+set.seed(1982)
+# method : cross validation resampling method | number : number of resampling iterations
+fitControl <- trainControl(method = "cv",
+                           number = 5)
+
+# method : Generalized Boosted Regression Models
+mod_gradientBoostR <- train(classe ~ ., data=pre_training, method = "gbm",
+                 trControl = fitControl,
+                 verbose = FALSE)
+
+prediction_GBR <- predict(mod_gradientBoostR, newdata=validation_set)
+gbmAccuracyTest <- confusionMatrix(prediction_GBR, validation_set$classe)
+gbmAccuracyTest
+
+plot(mod_gradientBoostR, ylim=c(0.9, 1))
+```
+
+# Predicting results on test data
+Random Forests have best accuracy in concern prediction rating of <b>99.75%</b>, which is more accurate than Decision Trees or Generalized Boosted Regression Models.
+```{r}
+# test set doesn't have some of the levels present in training. 
+# So to solve this we use :
+for (i in 1:(length(testing)-1)) {
+  levels(testing[[i]]) <- levels(pre_training[[i]])
+}
+
+prediction_RF_submit <- predict(mod_randomForest, testing[-c(58)])
+testing$classe <- prediction_RF_submit
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(prediction_RF_submit)
+```
+
+
+
+
+
