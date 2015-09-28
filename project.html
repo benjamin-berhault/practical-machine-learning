@@ -164,6 +164,7 @@ training &lt;- training[, !(colnames(training) %in% columns_2_ignore), drop=FALS
 <h2>3. Split the dataset</h2>
 
 <p>Split the intitial training dataset<em> </em>into two parts : <em>pre-training</em> set and <em>validation</em> set.</p>
+<font color="blue">We use the function <b>"createDataPartition()"</b> (from the Caret package) to have balanced splits of the data.</font>
 <pre class="r"><code>set.seed(1982)
 inTrain &lt;- createDataPartition(training$classe, p=0.6, list=FALSE)
 pre_training &lt;- training[inTrain, ]
