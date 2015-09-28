@@ -118,6 +118,12 @@ testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))</code></
 <h2>2. Data preprocessing</h2>
 <p>We begin by removing &quot;Near Zero Variance&quot; variables</p>
 <p><b>nearZeroVar()</b> (<a href="http://www.inside-r.org/packages/cran/caret/docs/nearZeroVar">doc.</a>): with this function by default, a predictor is classified as near-zero variance if the percentage of unique values in the samples is less than 10% and when the frequency ratio mentioned above is greater than 19 (95/5). </p>
+<pre class="r"><code># nzv : collect column near zero variance info
+nzv <- nearZeroVar(training, saveMetrics=TRUE)
+# save those column names
+non_relevant_columns <- c(names(training[,nzv$nzv==TRUE]))
+# delete those columns
+training <- training[,nzv$nzv==FALSE]</code></pre>
 <p>We remove the ID column that is non relevant for the analysis.</p>
 <pre class="r"><code>non_relevant_columns &lt;- c(non_relevant_columns,names(training[1]))
 training &lt;- training[c(-1)]</code></pre>
