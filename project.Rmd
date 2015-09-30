@@ -13,18 +13,44 @@ opts_chunk$set(fig.width=7, fig.height=4, warning=FALSE, message=FALSE)
 options(scipen=999)
 
 ```
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+
 #### Mission
-The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+The goal of your project is to predict the manner in which they did the exercise in regard to 5 different classes (A, B, C, D, E) point by the "classe" variable in the training set.
+
+* You should create a report describing how you built your model, how you used cross validation,
+For that purpose we will use the rpart.control() from rpart package and trainControl() from the Caret package. (http://machinelearningmastery.com/how-to-estimate-model-accuracy-in-r-using-the-caret-package/)
+
+<i>Quick review : The k-fold cross validation method involves splitting the dataset into k-subsets. For each subset is held out while the model is trained on all other subsets. This process is completed until accuracy is determine for each instance in the dataset, and an overall accuracy estimate is provided.</i>
+
+* What you think the expected out of sample error is, and why you made the choices you did.
+
+* You will also use your prediction model to predict 20 different test cases.
+
+#### Method
+
+Based on the features extracted from accelerometer predict the type in which the exercise was done which is the classe variable. These are the steps which were used:
+
+1. Load the training dataset (pml-training.csv) and the testing dataset (pml-training.csv) files.
+2. Preprocess the datasets to remove unnecessary columns not needed in the analysis.
+3. Split the intitial training dataset into two parts :pre-training set and validation set.
+4. Build different 3 predictive models.
+5. Evaluate the best algorithm to use by incrementally trying out Decision Trees, Random Forest and generalized boosted regression models and compare the out error for all algorithms.
+6. Choose the best algorithm from step 5 and use it to make prediction for the 20 test cases.
+
 
 #### URL
 * [Coursera - Johns Hopkins : Practical Machine Learning](https://www.coursera.org/course/predmachlearn)
-* Code source can be found here : [github.com/benjamin-berhault/practical-machine_learning](https://github.com/benjamin-berhault/practical-machine_learning)
+* Code source can be found here : [github.com/benjamin-berhault/practical-machine-learning](https://github.com/benjamin-berhault/practical-machine-learning)
 
 #### Data :
 * [Training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
 * [Test data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
 
-```{r include=FALSE}
+## Libraries
+
+```{r}
 library(caret)
 library(rattle)
 library(rpart)
@@ -34,9 +60,14 @@ library(randomForest)
 library(gbm)
 ```
 
-## Data loading
-```{r echo=FALSE}
-set.seed(1982)
+## 1. Data loading
+```{r}
+trainURL <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainingFile <- "./pml-training.csv"
+testingFile  <- "./pml-testing.csv"
+if (!file.exists(trainingFile)) {download.file(trainURL, destfile=trainingFile)}
+if (!file.exists(testingFile)) {download.file(testURL, destfile=testingFile)}
 
 # training set
 training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
@@ -44,13 +75,13 @@ training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
 testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
 ```
 
-## Cleaning the data
+## 2. Data preprocessing
 
 We begin by removing Near Zero Variance variables
 
-<b>nearZeroVar()</b> : By default, a predictor is classified as near-zero variance if the percentage of unique values in the samples is less than 10% and when the frequency ratio mentioned above is greater than 19 95/5.
+<b>nearZeroVar()</b> (<a href="http://www.inside-r.org/packages/cran/caret/docs/nearZeroVar">doc.</a>) : with this function by default, a predictor is classified as near-zero variance if the percentage of unique values in the samples is less than 10% and when the frequency ratio mentioned above is greater than 19 (95/5). 
 
-```{r echo=FALSE}
+```{r}
 # nzv : collect column near zero variance info
 nzv <- nearZeroVar(training, saveMetrics=TRUE)
 # save those column names
@@ -60,24 +91,23 @@ training <- training[,nzv$nzv==FALSE]
 
 ```
 
-We remove the ID column (non relevant)
+We remove the ID column that is non relevant for the analysis.
 ```{r}
 non_relevant_columns <- c(non_relevant_columns,names(training[1]))
 training <- training[c(-1)]
 ```
-Investigation of missing values
+We investigate missing values
 ```{r}
 # Quantity of NAs by column
 training_nb_of_NAs <- apply(training, 2, function(x) sum(is.na(x)))
 
 # We check the different amount of missing observations
 training_dif_amount_of_NAs <- unique(training_nb_of_NAs)
+pourcent_miss_obs <- round(training_dif_amount_of_NAs/nrow(training)*100,2)
+pourcent_miss_obs[order(pourcent_miss_obs)]
 
 # Smallest amount of missing observations 
-smallest_missing <- min(training_dif_amount_of_NAs)
-
-# Pourcentage of missing observations for that column 
-round(smallest_missing/nrow(training)*100,2)
+pourcent_miss_obs[order(pourcent_miss_obs)][2]
 ```
 The pourcentage is so important that we remove each column with missing values.
 ```{r}
@@ -98,13 +128,20 @@ non_relevant_columns <- c(non_relevant_columns,columns_2_ignore)
 training <- training[, !(colnames(training) %in% columns_2_ignore), drop=FALSE]
 ```
 
-Partioning the training set in one pre-training set and one validation set
+##3. Split the dataset
+Split the intitial training dataset into two parts : <i>pre-training</i> set and <i>validation</i> set.
+
+<font color="blue">We use the function <b>"createDataPartition()"</b> (from the Caret package) to have balanced splits of the data.</font>
+
 ```{r}
 set.seed(1982)
 inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
 pre_training <- training[inTrain, ]
 validation_set <- training[-inTrain, ]
+
+# pre-training dataset's dimensions 
 dim(pre_training)
+# validation dataset's dimensions 
 dim(validation_set)
 ```
 
@@ -112,15 +149,24 @@ Reduce the testing dataset to relevant columns
 ```{r}
 clean2 <- colnames(pre_training[, -58])  # remove the classe column
 testing <- testing[clean2]
+
+# testing dataset's dimensions
 dim(testing)
 ```
 
-# Investigation on machine learning algorithms 
-### Decision Tree
-```{r}
-mod_decisionTree <- rpart(classe ~ ., data=pre_training, method="class")
-fancyRpartPlot(mod_decisionTree)
+## 4. Test 3 different predictive models
 
+* Decision Tree
+* Random Forests
+* Generalized Boosted Regression
+
+### Decision Tree
+```{r fig.align='center'}
+set.seed(1982)
+# xval : define the number of cross-validations
+fitControl1 = rpart.control(cp = 0, xval = 5)
+mod_decisionTree <- rpart(classe ~ ., data=pre_training, method="class", control = fitControl1)
+fancyRpartPlot(mod_decisionTree)
 prediction_DT <- predict(mod_decisionTree, validation_set, type = "class")
 cmtree <- confusionMatrix(prediction_DT, validation_set$classe)
 cmtree
@@ -128,9 +174,12 @@ par(mfrow=c(1,1))
 plot(cmtree$table, col = cmtree$byClass, main = paste("Decision Tree Confusion Matrix"))
 ```
 
+With "Decision Tree" method, the prediction reach an accuracy rate of <b>`r round(100*cmtree$overall['Accuracy'],2)`</b>%. 
+
 ### Random Forests
-```{r}
+```{r fig.align='center'}
 set.seed(1982)
+
 mod_randomForest <- randomForest(classe ~ ., data=pre_training)
 prediction_RF <- predict(mod_randomForest, validation_set, type = "class")
 cmrf <- confusionMatrix(prediction_RF, validation_set$classe)
@@ -140,16 +189,19 @@ par(mfrow=c(1,1))
 plot(mod_randomForest)
 plot(cmrf$table, col = cmtree$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cmrf$overall['Accuracy'], 4)))
 ```
+
+With "Random Forests" method, the prediction reach an accuracy rate of <b>`r round(100*cmrf$overall['Accuracy'],2)`</b>%. 
+
 ### Generalized Boosted Regression
-```{r}
+```{r fig.align='center'}
 set.seed(1982)
 # method : cross validation resampling method | number : number of resampling iterations
-fitControl <- trainControl(method = "cv",
+fitControl2 <- trainControl(method = "cv",
                            number = 5)
 
-# method : Generalized Boosted Regression Models
+# method : Generalized Boosted Regression Model
 mod_gradientBoostR <- train(classe ~ ., data=pre_training, method = "gbm",
-                 trControl = fitControl,
+                 trControl = fitControl2,
                  verbose = FALSE)
 
 prediction_GBR <- predict(mod_gradientBoostR, newdata=validation_set)
@@ -159,18 +211,32 @@ gbmAccuracyTest
 plot(mod_gradientBoostR, ylim=c(0.9, 1))
 ```
 
-# Predicting results on test data
-Random Forests have best accuracy in concern prediction rating of <b>99.75%</b>, which is more accurate than Decision Trees or Generalized Boosted Regression Models.
+With "Generalized Boosted Regression" method, the prediction reach an accuracy rate of <b>`r round(100*gbmAccuracyTest$overall['Accuracy'],2)`</b>%. 
+
+## 5. Choose the best
+
+Models accuracy :
+
+* Decision Trees : `r round(100*cmtree$overall['Accuracy'],2)`%
+* Random Forests : <b>`r round(100*cmrf$overall['Accuracy'],2)`</b>%
+* Generalized Boosted Regression : `r round(100*gbmAccuracyTest$overall['Accuracy'],2)`%
+
+The model build on Random Forests reach the best accuracy rating with <b>`r round(100*cmrf$overall['Accuracy'],2)`</b>%.
+
+## 6. Predict classes for the testing dataset
 ```{r}
-# test set doesn't have some of the levels present in training. 
-# So to solve this we use :
+# some testing and training dataset levels type doesn't match. 
+# So to solve this problem we use :
 for (i in 1:(length(testing)-1)) {
   levels(testing[[i]]) <- levels(pre_training[[i]])
 }
 
 prediction_RF_submit <- predict(mod_randomForest, testing[-c(58)])
 testing$classe <- prediction_RF_submit
-
+testing$classe
+```
+Function to format results before submission : 
+```{r}
 pml_write_files = function(x){
   n = length(x)
   for(i in 1:n){
