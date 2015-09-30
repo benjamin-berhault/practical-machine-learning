@@ -19,9 +19,14 @@ pkgTest("RColorBrewer")
 pkgTest("randomForest")
 pkgTest("gbm");
 
-set.seed(1982)
-
 ### Getting and loading the data
+trainURL <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainingFile <- "./pml-training.csv"
+testingFile  <- "./pml-testing.csv"
+if (!file.exists(trainingFile)) {download.file(trainURL, destfile=trainingFile)}
+if (!file.exists(testingFile)) {download.file(testURL, destfile=testingFile)}
+
 
 training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
 testing <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
@@ -40,27 +45,23 @@ non_relevant_columns <- c(names(training[,nzv$nzv==TRUE]))
 # delete those columns
 training <- training[,nzv$nzv==FALSE]
 
-# Remove the ID column (non relevant)
 non_relevant_columns <- c(non_relevant_columns,names(training[1]))
 training <- training[c(-1)]
-non_relevant_columns
-dim(training)
 
+## We investigate missing values
 # Quantity of NAs by column
 training_nb_of_NAs <- apply(training, 2, function(x) sum(is.na(x)))
 
 # We check the different amount of missing observations
 training_dif_amount_of_NAs <- unique(training_nb_of_NAs)
+pourcent_miss_obs <- round(training_dif_amount_of_NAs/nrow(training)*100,2)
+pourcent_miss_obs[order(pourcent_miss_obs)]
 
 # Smallest amount of missing observations 
-smallest_missing <- min(training_dif_amount_of_NAs)
+pourcent_miss_obs[order(pourcent_miss_obs)][2]
 
-# Pourcentage of missing observations for that column 
-round(smallest_missing/nrow(training)*100,2)
 
-# The pourcentage is so important that we remove 
-# each column with missing values
-
+# The pourcentage is so important that we remove each column with missing values.
 columns_2_ignore <- c()
 # columns to ignore
 column_with_NA <- (training_nb_of_NAs != 0)
@@ -74,36 +75,53 @@ for (i in 1:length(column_with_NA)) {
 # store the name of irrelevant columns
 non_relevant_columns <- c(non_relevant_columns,columns_2_ignore)
 
-# remove irrelevant columns from the dataset
+# remove irrelevant columns from the training dataset
 training <- training[, !(colnames(training) %in% columns_2_ignore), drop=FALSE]
 
 
-### Partioning the training set in one pre-training set and one validation set
+## 3. Split the dataset
+# Split the intitial training dataset into two parts : pre-training set and validation set.
+# We use the function "createDataPartition()" (from the Caret package) to have balanced splits of the data.
 set.seed(1982)
 inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
 pre_training <- training[inTrain, ]
 validation_set <- training[-inTrain, ]
+
+# pre-training dataset's dimensions 
 dim(pre_training)
+# validation dataset's dimensions 
 dim(validation_set)
 
 
-# reduce the testing dataset to relevant columns
+# Reduce the testing dataset to relevant columns
 clean2 <- colnames(pre_training[, -58])  # remove the classe column
 testing <- testing[clean2]
+
+# testing dataset's dimensions
 dim(testing)
 
-### Using ML algorithms for prediction: Decision Tree
-modFitA1 <- rpart(classe ~ ., data=pre_training, method="class")
-fancyRpartPlot(modFitA1)
 
-prediction_DT <- predict(modFitA1, validation_set, type = "class")
+## 4. Build the 3 different predictive models
+### Decision Tree
+set.seed(1982)
+# xval : define the number of cross-validations
+fitControl1 = rpart.control(cp = 0, xval = 5)
+mod_decisionTree <- rpart(classe ~ ., data=pre_training, method="class", control = fitControl1)
+fancyRpartPlot(mod_decisionTree)
+
+prediction_DT <- predict(mod_decisionTree, validation_set, type = "class")
 cmtree <- confusionMatrix(prediction_DT, validation_set$classe)
 cmtree
 par(mfrow=c(1,1))
 plot(cmtree$table, col = cmtree$byClass, main = paste("Decision Tree Confusion Matrix"))
 
-### Using ML algorithms for prediction: Random Forests
+# Decision Tree accuracy
+round(100*cmtree$overall['Accuracy'],2)
+
+### Random Forests
+
 set.seed(1982)
+
 mod_randomForest <- randomForest(classe ~ ., data=pre_training)
 prediction_RF <- predict(mod_randomForest, validation_set, type = "class")
 cmrf <- confusionMatrix(prediction_RF, validation_set$classe)
@@ -113,17 +131,19 @@ par(mfrow=c(1,1))
 plot(mod_randomForest)
 plot(cmrf$table, col = cmtree$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cmrf$overall['Accuracy'], 4)))
 
+# Random Forests accuracy
+round(100*cmrf$overall['Accuracy'],2)
 
-### Using gbm prediction
+### Generalized Boosted Regression
 set.seed(1982)
 # method : cross validation resampling method | number : number of resampling iterations
-fitControl <- trainControl(method = "cv",
-                           number = 5)
+fitControl2 <- trainControl(method = "cv",
+                            number = 5)
 
 # method : Generalized Boosted Regression Models
 mod_gradientBoostR <- train(classe ~ ., data=pre_training, method = "gbm",
-                 trControl = fitControl,
-                 verbose = FALSE)
+                            trControl = fitControl2,
+                            verbose = FALSE)
 
 prediction_GBR <- predict(mod_gradientBoostR, newdata=validation_set)
 gbmAccuracyTest <- confusionMatrix(prediction_GBR, validation_set$classe)
@@ -131,7 +151,10 @@ gbmAccuracyTest
 
 plot(mod_gradientBoostR, ylim=c(0.9, 1))
 
-### Predicting results on test data
+# Generalized Boosted Regression accuracy
+round(100*gbmAccuracyTest$overall['Accuracy'],2)
+
+# Predicting results on test data
 # test set doesn't have some of the levels present in training. 
 # So to solve this we use :
 for (i in 1:(length(testing)-1)) {
@@ -150,3 +173,9 @@ pml_write_files = function(x){
 }
 
 pml_write_files(prediction_RF_submit)
+
+
+
+
+
+
